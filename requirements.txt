@@ -1,0 +1,5 @@
+# MR.ROOT — NetHunter Scanner
+# Instalacja: pip install -r requirements.txt
+
+# Wrapper Pythona dla nmap (wymagany nmap w systemie: apt install nmap)
+python-nmap>=0.7.1
