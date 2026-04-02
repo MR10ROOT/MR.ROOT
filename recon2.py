@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-MR.ROOT Scanner v2.1 — Enhanced NetHunter Edition
-Autor: MR.ROOT | Kali NetHunter (Ulepszono o obsługę CLI, Captive Portal i współbieżność)
+MR.ROOT Scanner v2.2 — Fuzzer Edition
+Autor: MR.ROOT | Kali NetHunter (Ulepszono o Szybki Fuzzing Ścieżek)
 TYLKO do użytku na własnej sieci lub za pisemną zgodą właściciela.
 """
 
@@ -9,11 +9,13 @@ import nmap
 import os
 import sys
 import json
+import hashlib
 import datetime
 import ipaddress
 import socket
 import ssl
 import urllib.request
+from urllib.error import HTTPError, URLError
 import subprocess
 import argparse
 import random
@@ -64,11 +66,20 @@ MAX_THREADS = 5
 SNMP_COMMUNITIES = ["public", "private", "community", "admin", "manager", "cisco", "snmp"]
 BANNER_PORTS     = [80, 443, 8008, 8080, 8081, 8443, 8888, 9000, 9090, 3000, 5000]
 
+# Wbudowany mini-słownik Fuzzera (najczęstsze wektory)
+FUZZ_PATHS = [
+    "/.env", "/.git/config", "/.svn/entries", "/admin/", "/admin.php",
+    "/administrator/", "/api/", "/backup.zip", "/bak.zip", "/config.bak",
+    "/config.php.bak", "/db.sql", "/db.sqlite", "/phpinfo.php", "/phpmyadmin/",
+    "/robots.txt", "/server-status", "/test.php", "/wp-admin/", "/wp-config.php.bak",
+    "/login", "/manager/html", "/server.xml"
+]
+
 USER_AGENTS = [
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.6 Safari/605.1.15",
-    "Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
-    "MR.ROOT-Recon/2.1 (Educational Network Scanner)"
+    "Mozilla/5.0 (Linux; Android 14; 23049PCD8G) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36",
+    "MR.ROOT-Recon/2.2 (Educational Network Scanner)"
 ]
 
 VULN_SCRIPTS = [
@@ -90,7 +101,7 @@ BANNER = f"""
   ██║╚██╔╝██║██╔══██╗    ██╔══██╗██║   ██║██║   ██║   ██║
   ██║ ╚═╝ ██║██║  ██║    ██║  ██║╚██████╔╝╚██████╔╝   ██║
   ╚═╝     ╚═╝╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝{C.RESET}
-{C.DIM}        Mobilny Skaner Sieci | by MR.ROOT | NetHunter Edition v2.1{C.RESET}
+{C.DIM}        Mobilny Skaner Sieci | by MR.ROOT | NetHunter Edition v2.2{C.RESET}
 """
 
 HELP_TEXT = f"""
@@ -102,6 +113,7 @@ HELP_TEXT = f"""
   {c(C.GREEN, "snmp <IP>")}        SNMP Scan — community brute + info
   {c(C.GREEN, "v <IP>")}           Vuln-Scan NSE — CVE, Heartbleed, EternalBlue
   {c(C.GREEN, "b <IP>")}           Banner Grabber — HTTP/HTTPS + raport HTML
+  {c(C.GREEN, "f <IP>")}           Fuzzer Ścieżek — Szybkie szukanie ukrytych plików
   {c(C.GREEN, "sweep")}            Ping Sweep aktywnej podsieci
   {c(C.GREEN, "sweep <CIDR>")}     Ping Sweep podanej podsieci
   {c(C.GREEN, "h")}                Ta pomoc
@@ -315,6 +327,114 @@ details summary{{cursor:pointer;color:#0af;font-size:.88em;margin-top:6px;user-s
 <body><h1>🌐 Banner Grabber — {ip}</h1><p style="color:#555">Wygenerowano: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | Portów: {len(BANNER_PORTS)} | Wyników: {len(results)}</p>{rows}</body></html>"""
     with open(path, "w", encoding="utf-8") as f: f.write(html)
 
+# =========================
+# FUZZER — POPRAWIONY (baseline fingerprinting)
+# =========================
+def _get_baseline(base_url):
+    """Pobiera 'wzorzec' catch-all — odpytuje losowy nieistniejący URL."""
+    fake_url = f"{base_url}/mrroot_baseline_nonexistent_{random.randint(10000, 99999)}"
+    ua = random.choice(USER_AGENTS)
+    try:
+        req = urllib.request.Request(fake_url, headers={"User-Agent": ua})
+        ctx = ssl._create_unverified_context()
+        res = urllib.request.urlopen(req, timeout=3, context=ctx)
+        body = res.read(2048)
+        return hashlib.md5(body).hexdigest(), len(body)
+    except HTTPError as e:
+        try:
+            body = e.read(2048)
+            return hashlib.md5(body).hexdigest(), len(body)
+        except Exception:
+            return None, None
+    except Exception:
+        return None, None
+
+
+def _fetch_fuzz(url, baseline_hash=None, baseline_len=None):
+    """Pobiera URL i filtruje fałszywe pozytywy przez porównanie z baselineą."""
+    ua = random.choice(USER_AGENTS)
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": ua})
+        ctx = ssl._create_unverified_context()
+        res = urllib.request.urlopen(req, timeout=3, context=ctx)
+        body = res.read(2048)
+        body_hash = hashlib.md5(body).hexdigest()
+        body_len  = len(body)
+
+        # Identyczny hash => catch-all (fałszywy pozytyw)
+        if baseline_hash and body_hash == baseline_hash:
+            return {"url": url, "success": False, "reason": "catch-all"}
+
+        # Bardzo podobna długość (+/- 50 B) => prawdopodobnie catch-all
+        if baseline_len and abs(body_len - baseline_len) < 50:
+            return {"url": url, "success": False, "reason": "similar-length"}
+
+        return {
+            "url": url, "status": res.status,
+            "length": body_len, "hash": body_hash, "success": True
+        }
+    except HTTPError as e:
+        # 401 i 403 są ciekawe — coś tu jest, tylko chronione
+        if e.code in [401, 403]:
+            return {"url": url, "status": e.code, "length": 0, "success": True}
+        return {"url": url, "status": e.code, "success": False}
+    except Exception:
+        return {"url": url, "success": False}
+
+
+def fuzz_scan(ip):
+    log("scan", f"Fuzzer Ścieżek: {c(C.WHITE+C.BOLD, ip)}")
+    results = []
+    tasks   = []
+
+    base_urls = [
+        f"http://{ip}",
+        f"https://{ip}",
+        f"http://{ip}:8080",
+        f"https://{ip}:8443"
+    ]
+
+    # Krok 1: baseline fingerprint dla każdego base_url
+    baselines = {}
+    for base_url in base_urls:
+        log("info", f"Pobieranie baseline dla {base_url}...")
+        bh, bl = _get_baseline(base_url)
+        baselines[base_url] = (bh, bl)
+        if bh:
+            log("info", f"  Baseline hash: {bh[:12]}… len: {bl} B")
+        else:
+            log("warn", f"  Brak baseline (serwer niedostępny lub nie odpowiada)")
+
+    # Krok 2: właściwy fuzzing z filtrowaniem catch-all
+    with ThreadPoolExecutor(max_workers=MAX_THREADS * 2) as ex:
+        for base_url in base_urls:
+            bh, bl = baselines.get(base_url, (None, None))
+            for path in FUZZ_PATHS:
+                url = f"{base_url}{path}"
+                tasks.append(ex.submit(_fetch_fuzz, url, bh, bl))
+
+        for future in as_completed(tasks):
+            res = future.result()
+            if res.get("success"):
+                results.append(res)
+                sc = C.GREEN if res.get("status") in [200, 401, 403] else C.YELLOW
+                length_info = c(C.DIM, f"({res.get('length', '?')} B)")
+                log("ok", f"  {c(sc, str(res['status'])):<5} {c(C.WHITE, res['url'])} {length_info}")
+
+    if not results:
+        log("warn", "Brak wyników — wszystkie odpowiedzi to catch-all lub serwer niedostępny.")
+        return []
+
+    ts = now()
+    json_file = f"{REPORT_DIR}/fuzz_{ip_to_filename(ip)}_{ts}.json"
+    with open(json_file, "w", encoding="utf-8") as f:
+        json.dump(results, f, indent=2, ensure_ascii=False)
+
+    print()
+    log("ok", f"Raport JSON: {json_file}")
+    return results
+
+
 def identity_scan(ip):
     log("scan", f"Identity Scan: {c(C.WHITE+C.BOLD, ip)}")
     nm, res = nmap.PortScanner(), {"ip": ip, "hostname": None, "mdns": None, "netbios": None, "smb": None, "upnp": None}
@@ -365,8 +485,7 @@ def snmp_scan(ip):
     log("scan", f"SNMP Scan: {c(C.WHITE+C.BOLD, ip)}")
     nm, res = nmap.PortScanner(), {"ip": ip, "community": None, "data": {}}
     found_community, snmp_data = None, {}
-
-    for community in SNMP_COMMUNITIES:
+for community in SNMP_COMMUNITIES:
         try:
             nm.scan(hosts=ip, arguments=f"-sU -p 161 --script snmp-info,snmp-interfaces,snmp-processes,snmp-sysdescr --script-args snmp.community={community} -T4 --host-timeout 20s")
             if ip in nm.all_hosts() and 161 in nm[ip].get("udp", {}) and nm[ip]["udp"][161].get("state") in ["open", "open|filtered"]:
@@ -490,7 +609,7 @@ def parse_interactive_command(raw):
     if lower == "sweep": return "sweep", None
     if lower.startswith("sweep "): return "sweep", raw[6:].strip()
 
-    for prefix, cmd_type in [("i ", "identity"), ("snmp ", "snmp"), ("v ", "vuln"), ("b ", "banner")]:
+    for prefix, cmd_type in [("i ", "identity"), ("snmp ", "snmp"), ("v ", "vuln"), ("b ", "banner"), ("f ", "fuzz")]:
         if lower.startswith(prefix):
             arg = raw[len(prefix):].strip()
             if validate_ip(arg): return cmd_type, arg
@@ -501,9 +620,9 @@ def parse_interactive_command(raw):
     return "unknown", "Nieprawidłowy input — wpisz h po pomoc"
 
 def main():
-    parser = argparse.ArgumentParser(description="MR.ROOT Scanner v2.1")
+    parser = argparse.ArgumentParser(description="MR.ROOT Scanner v2.2")
     parser.add_argument("-t", "--target", help="Cel skanowania (IP, CIDR, lub lista np. 192.168.1.1,192.168.1.2)")
-    parser.add_argument("-m", "--mode", choices=["deep", "identity", "snmp", "vuln", "banner", "sweep"], help="Tryb skanowania dla podanego celu")
+    parser.add_argument("-m", "--mode", choices=["deep", "identity", "snmp", "vuln", "banner", "fuzz", "sweep"], help="Tryb skanowania dla podanego celu")
     args = parser.parse_args()
 
     print(BANNER)
@@ -519,6 +638,7 @@ def main():
         elif args.mode == "snmp": snmp_scan(args.target)
         elif args.mode == "vuln": vuln_scan(args.target)
         elif args.mode == "banner": banner_grabber(args.target)
+        elif args.mode == "fuzz": fuzz_scan(args.target)
         sys.exit(0)
 
     # Tryb interaktywny
@@ -548,7 +668,9 @@ def main():
         elif cmd_type == "snmp": snmp_scan(arg)
         elif cmd_type == "vuln": vuln_scan(arg)
         elif cmd_type == "banner": banner_grabber(arg)
+        elif cmd_type == "fuzz": fuzz_scan(arg)
         elif cmd_type == "unknown": log("err", arg)
 
 if __name__ == "__main__":
     main()
+
