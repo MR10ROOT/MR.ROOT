@@ -485,7 +485,8 @@ def snmp_scan(ip):
     log("scan", f"SNMP Scan: {c(C.WHITE+C.BOLD, ip)}")
     nm, res = nmap.PortScanner(), {"ip": ip, "community": None, "data": {}}
     found_community, snmp_data = None, {}
-for community in SNMP_COMMUNITIES:
+
+    for community in SNMP_COMMUNITIES:
         try:
             nm.scan(hosts=ip, arguments=f"-sU -p 161 --script snmp-info,snmp-interfaces,snmp-processes,snmp-sysdescr --script-args snmp.community={community} -T4 --host-timeout 20s")
             if ip in nm.all_hosts() and 161 in nm[ip].get("udp", {}) and nm[ip]["udp"][161].get("state") in ["open", "open|filtered"]:
@@ -673,4 +674,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
