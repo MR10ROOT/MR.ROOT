@@ -1,8 +1,8 @@
-# MR.ROOT — NetHunter Scanner v2.0
+# MR.ROOT — NetHunter Scanner v2.2
 # Instalacja: pip install -r requirements.txt
 # Wymagany nmap w systemie: apt install nmap
 
 # Wrapper Pythona dla nmap (wymagany nmap w systemie)
 python-nmap>=0.7.1
 
-# Reszta (json, socket, ssl, ipaddress, subprocess, urllib) to stdlib Python 3.10+
+# Reszta (json, socket, ssl, ipaddress, subprocess, urllib, argparse, hashlib, concurrent.futures) to stdlib Python 3.10+
