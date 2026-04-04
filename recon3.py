@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MR.ROOT Scanner v3.0 — NetHunter Edition
+MR.ROOT Scanner v3.1 — NetHunter Edition
 Autor: MR.ROOT | Kali NetHunter
 TYLKO do użytku na własnej sieci lub za pisemną zgodą właściciela.
 
@@ -13,6 +13,10 @@ Zmiany v3.0:
   [6] Sprawdzenie uprawnień roota przy starcie
   [7] Limit 2 równoległych procesów NMAP w deep_scan
   [8] Globalny timeout 300 s dla całego skanowania (concurrent.futures.wait)
+
+Zmiany v3.1:
+  [9] Tryb Full Scan (all <IP> / -m all) — wszystkie moduły sekwencyjnie,
+      Ctrl+C na fazie = skip do następnej, zbiorczy raport JSON na końcu
 """
 
 import nmap
@@ -184,7 +188,7 @@ BANNER = f"""
   ██║╚██╔╝██║██╔══██╗    ██╔══██╗██║   ██║██║   ██║   ██║
   ██║ ╚═╝ ██║██║  ██║    ██║  ██║╚██████╔╝╚██████╔╝   ██║
   ╚═╝     ╚═╝╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝{C.RESET}
-{C.DIM}        Mobilny Skaner Sieci | by MR.ROOT | NetHunter Edition v3.0{C.RESET}
+{C.DIM}        Mobilny Skaner Sieci | by MR.ROOT | NetHunter Edition v3.1{C.RESET}
 """
 
 HELP_TEXT = f"""
@@ -197,6 +201,7 @@ HELP_TEXT = f"""
   {c(C.GREEN, "v <IP>")}           Vuln-Scan NSE — CVE, Heartbleed, EternalBlue
   {c(C.GREEN, "b <IP>")}           Banner Grabber — HTTP/HTTPS + raport HTML
   {c(C.GREEN, "f <IP> [wordlist]")} Fuzzer Ścieżek — ukryte pliki (opcj. plik słownika)
+  {c(C.GREEN+C.BOLD, "all <IP>")}         {c(C.YELLOW+C.BOLD, "Full Scan — wszystkie moduły sekwencyjnie + zbiorczy raport")}
   {c(C.GREEN, "sweep")}            Ping Sweep aktywnej podsieci
   {c(C.GREEN, "sweep <CIDR>")}     Ping Sweep podanej podsieci
   {c(C.GREEN, "h")}                Ta pomoc
@@ -923,6 +928,95 @@ def run_scan(targets):
     save_deep_outputs(results)
 
 # =========================
+# FULL SCAN — wszystkie moduły
+# =========================
+FULL_SCAN_PHASES = [
+    ("1/6", "Deep Scan",     "deep"),
+    ("2/6", "Identity Scan", "identity"),
+    ("3/6", "SNMP Scan",     "snmp"),
+    ("4/6", "Banner Grabber","banner"),
+    ("5/6", "Fuzzer",        "fuzz"),
+    ("6/6", "Vuln-Scan NSE", "vuln"),
+]
+
+def _phase_header(phase_num, name):
+    div = c(C.CYAN+C.BOLD, "═" * 60)
+    label = c(C.CYAN+C.BOLD, f"  [{phase_num}] {name}")
+    skip  = c(C.DIM, "  Ctrl+C = pomiń tę fazę, przejdź do następnej")
+    print(f"\n{div}\n{label}\n{skip}\n{div}")
+
+def full_scan(ip, wordlist_file=None):
+    """
+    Uruchamia wszystkie moduły sekwencyjnie dla jednego IP.
+    Ctrl+C na danej fazie powoduje skip do następnej (nie kończy całości).
+    Na końcu zapisuje zbiorczy raport JSON.
+    """
+    ts_start = datetime.datetime.now()
+    report   = {
+        "ip":         ip,
+        "started_at": ts_start.strftime("%Y-%m-%d %H:%M:%S"),
+        "deep":       None,
+        "identity":   None,
+        "snmp":       None,
+        "banner":     None,
+        "fuzz":       None,
+        "vuln":       None,
+        "skipped":    [],
+        "finished_at": None,
+        "duration_s":  None,
+    }
+
+    # Nagłówek całości
+    master_div = c(C.GREEN+C.BOLD, "█" * 60)
+    print(f"\n{master_div}")
+    print(c(C.GREEN+C.BOLD,  f"  ▶  FULL SCAN: {ip}"))
+    print(c(C.DIM,           f"  Faz: {len(FULL_SCAN_PHASES)} | Ctrl+C = pomiń fazę | Ctrl+C×2 = wyjdź"))
+    print(f"{master_div}\n")
+
+    for phase_num, phase_name, phase_key in FULL_SCAN_PHASES:
+        _phase_header(phase_num, phase_name)
+        try:
+            if   phase_key == "deep":     report["deep"]     = deep_scan(ip)
+            elif phase_key == "identity": report["identity"] = identity_scan(ip)
+            elif phase_key == "snmp":     report["snmp"]     = snmp_scan(ip)
+            elif phase_key == "banner":   report["banner"]   = banner_grabber(ip)
+            elif phase_key == "fuzz":     report["fuzz"]     = fuzz_scan(ip, wordlist_file)
+            elif phase_key == "vuln":     report["vuln"]     = vuln_scan(ip)
+        except KeyboardInterrupt:
+            print()
+            log("warn", f"Faza [{phase_num}] {phase_name} — POMINIĘTA przez użytkownika.")
+            report["skipped"].append(phase_key)
+            time.sleep(0.3)  # chwila na Ctrl+C × 2 żeby wyjść całkowicie
+
+    # Podsumowanie
+    ts_end = datetime.datetime.now()
+    duration = (ts_end - ts_start).seconds
+    report["finished_at"] = ts_end.strftime("%Y-%m-%d %H:%M:%S")
+    report["duration_s"]  = duration
+
+    mins, secs = divmod(duration, 60)
+    print(f"\n{master_div}")
+    print(c(C.GREEN+C.BOLD, f"  ✔  FULL SCAN ZAKOŃCZONY: {ip}"))
+    print(c(C.DIM,          f"  Czas: {mins}m {secs}s"))
+
+    if report["skipped"]:
+        print(c(C.YELLOW, f"  Pominięte fazy: {', '.join(report['skipped'])}"))
+
+    # Zbiorczy raport JSON
+    ts_str   = ts_start.strftime("%Y%m%d_%H%M%S")
+    out_file = f"{REPORT_DIR}/fullscan_{ip_to_filename(ip)}_{ts_str}.json"
+    try:
+        with open(out_file, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2, ensure_ascii=False, default=str)
+        print(c(C.GREEN, f"  Raport: {out_file}"))
+    except Exception as e:
+        log("err", f"Nie zapisano raportu: {e}")
+
+    print(f"{master_div}\n")
+    return report
+
+
+# =========================
 # CLI / MAIN ROUTING
 # =========================
 def parse_interactive_command(raw):
@@ -943,6 +1037,15 @@ def parse_interactive_command(raw):
         wl_arg = parts[1] if len(parts) > 1 else None
         if validate_ip(ip_arg):
             return "fuzz", ip_arg, wl_arg
+        return "unknown", f"Nieprawidłowy IP: {ip_arg}", None
+
+    # "all <IP> [wordlist]" — Full Scan
+    if lower.startswith("all "):
+        parts = raw[4:].strip().split(None, 1)
+        ip_arg = parts[0]
+        wl_arg = parts[1] if len(parts) > 1 else None
+        if validate_ip(ip_arg):
+            return "all", ip_arg, wl_arg
         return "unknown", f"Nieprawidłowy IP: {ip_arg}", None
 
     for prefix, cmd_type in [
@@ -969,7 +1072,7 @@ def main():
     parser.add_argument("-t", "--target",
         help="Cel skanowania (IP, IPv6, CIDR lub lista np. 192.168.1.1,192.168.1.2)")
     parser.add_argument("-m", "--mode",
-        choices=["deep", "identity", "snmp", "vuln", "banner", "fuzz", "sweep"],
+        choices=["deep", "identity", "snmp", "vuln", "banner", "fuzz", "sweep", "all"],
         help="Tryb skanowania")
     parser.add_argument("-w", "--wordlist",
         help="Zewnętrzny plik słownika dla fuzzera")
@@ -1010,6 +1113,7 @@ def main():
         elif args.mode == "vuln":     vuln_scan(args.target)
         elif args.mode == "banner":   banner_grabber(args.target)
         elif args.mode == "fuzz":     fuzz_scan(args.target, args.wordlist)
+        elif args.mode == "all":      full_scan(args.target, args.wordlist)
         sys.exit(0)
 
     # Tryb interaktywny
@@ -1051,6 +1155,7 @@ def main():
         elif cmd_type == "vuln":     vuln_scan(arg)
         elif cmd_type == "banner":   banner_grabber(arg)
         elif cmd_type == "fuzz":     fuzz_scan(arg, extra)
+        elif cmd_type == "all":      full_scan(arg, extra)
         elif cmd_type == "unknown":  log("err", arg)
 
 if __name__ == "__main__":
