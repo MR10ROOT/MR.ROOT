@@ -1,6 +1,6 @@
 # MR.ROOT – Mobilny Skaner Sieci
 
-**NetHunter Edition v3.5 REDHUNT-16-BETA**
+**NetHunter Edition v3.7 REDHUNT-16-BETA**
 
 Zaawansowane narzędzie do rekonesansu, analizy sieci lokalnej, fuzzingu aplikacji webowych oraz automatycznego wykrywania podatności SQL Injection, zaprojektowane z myślą o pracy na Kali NetHunter (Android).
 Napisane w Pythonie, oparte na nmap, NSE, SearchSploit, sqlmap oraz autorskich, wielowątkowych modułach HTTP.
@@ -50,6 +50,8 @@ Skaner działa w trybie interaktywnym lub jako pojedyncze zadanie z linii polece
 | `all-net` | Full Scan sieci – ping sweep + automatyczny pełny skan każdego hosta |
 | `sql <URL>` | **[v3.5]** SQLMap Auto-Tamper WAF-Bypass – rotacja 6 łańcuchów tamperów 2025/2026 |
 | `auto-sql <URL>` | **[v3.5]** Auto-Spider + SQLMap – crawl strony → deduplikacja → masowy atak SQLi |
+| `hw <URL>` | **[v3.6]** Headless browser scan – analiza przez Playwright/Chromium |
+| `hpp <URL>` | **[v3.6]** HTTP Parameter Pollution test – WAF bypass via fragmentacja |
 | `h` | Pomoc |
 | `q / exit` | Wyjście |
 
@@ -57,11 +59,36 @@ Skaner działa w trybie interaktywnym lub jako pojedyncze zadanie z linii polece
 
 ## 🔥 Szczegóły głównych modułów
 
+### 🛡️ Moduły STEALTH / WAF-Bypass — nowość v3.6
+
+**Smart Delay + Jitter:**
+- Losowe opóźnienia między żądaniami (`JITTER_MIN`/`JITTER_MAX`: 0.3–1.8 s) zamiast stałego interwału.
+- Utrudnia heurystyczną detekcję przez WAF/IPS.
+
+**Zaawansowana rotacja nagłówków (`_smart_headers()`):**
+- Rozszerzony pool nagłówków: `Accept-Language`, `Referer`, `Sec-Ch-Ua` (Client Hints), `X-Forwarded-For`.
+- Losowa rotacja przy każdym żądaniu.
+
+**WAF-Bypass via fragmentacja:**
+- `hpp <URL>` — HTTP Parameter Pollution przez `_hpp_url()`.
+- `_send_chunked()` — Chunked Transfer Encoding przez raw socket.
+
+**Detekcja Rate Limiting + Cooldown:**
+- Per-IP state machine (`_RL_STATE`) — cooldown jednego celu nie blokuje pozostałych.
+- Automatyczne rozpoznanie kodów 403/429/503 → wstrzymanie skanowania (domyślnie 300 s).
+
+**Headless browser scan (`hw <URL>`):**
+- Integracja z Playwright/Chromium — analiza stron renderowanych przez JavaScript.
+- Wymaga: `pip install playwright && playwright install chromium`.
+
+---
+
 ### 💉 Moduły SQL Injection (sql, auto-sql) — nowość v3.5
 
 **`sql <URL>`** – SQLMap Auto-Tamper WAF-Bypass:
 - Automatycznie rotuje 6 najskuteczniejszych łańcuchów tamperów skonstruowanych pod nowoczesne WAF (2025/2026).
-- Uruchamia `sqlmap --level=5 --risk=3 --batch --random-agent --flush-session`.
+- Uruchamia `sqlmap --level=5 --risk=3 --batch --random-agent`.
+- **[v3.7]** Flaga `--resume` → wznawia poprzednią sesję SQLMap (`--no-flush-session`) zamiast zaczynać od nowa.
 - Wykrywa podatność **na żywo** przez parsowanie stdout — zatrzymuje się przy pierwszym potwierdzeniu.
 - Po sukcesie wyświetla gotową komendę `--dump-all` z najlepszym tamperem.
 - Zapisuje raport JSON z timestampem do katalogu raportów.
@@ -83,6 +110,7 @@ Skaner działa w trybie interaktywnym lub jako pojedyncze zadanie z linii polece
   Android ADB (5555), Apple Lockdown (62078), KDE Connect (1714–1764), AirDroid (8888), AirPlay (7000).
   Dodatkowo analizuje rekordy ZeroConf/mDNS pod kątem usług Apple i Google Cast.
 - **Mobile Fuzzer** – generuje na bieżąco specjalistyczny słownik ścieżek mobilnych (`/sdcard/`, `/DCIM/`, `/WhatsApp/Media/` itd.) i skanuje serwery HTTP w poszukiwaniu niezabezpieczonych plików użytkownika.
+- **[v3.7]** Mobile Fuzzer używa `tempfile.NamedTemporaryFile` — bezpieczne przy równoległych uruchomieniach.
 
 ### 🤖 Automatyzacja (all, all-net) — nowość v3.1–v3.4
 
@@ -94,7 +122,7 @@ Skaner działa w trybie interaktywnym lub jako pojedyncze zadanie z linii polece
 
 - **124 wbudowane wektory:** sekrety (`.env`, `.git/config`), API/Swagger/GraphQL, Spring Boot Actuator, backupy i pliki instalacyjne.
 - **Baseline fingerprinting** – skrypt uczy się wzorca Soft 404/Catch-all serwera i odrzuca fałszywe wyniki na podstawie skrótów MD5 i rozmiaru odpowiedzi.
-- **Rate limiting** – `threading.BoundedSemaphore` + 80 ms przerwy między żądaniami, co chroni przed blokowaniem IP.
+- **Rate limiting** – `threading.BoundedSemaphore` + Smart Delay z jitterem (v3.6), co chroni przed blokowaniem IP.
 
 ### 🌐 Banner Grabber i Deep Scan
 
@@ -111,6 +139,7 @@ Skaner działa w trybie interaktywnym lub jako pojedyncze zadanie z linii polece
 | Python | 3.10+ |
 | Narzędzia | `nmap` 7.80+, `exploitdb` (SearchSploit), `sqlmap` |
 | Uprawnienia | root (wymagane do skanów UDP, detekcji OS i surowych pakietów) |
+| Opcjonalnie | `playwright` + Chromium (tylko dla komendy `hw`) |
 
 > **NetHunter Chroot Fix** – skrypt posiada trzy wbudowane mechanizmy wykrywania interfejsów sieciowych (fallbacki), co rozwiązuje problem braku domyślnej bramy w środowisku chroot na Androidzie. Omija też wirtualne interfejsy systemowe (`ccmni`, `dummy`, `rmnet`).
 
@@ -133,9 +162,12 @@ pip install -r requirements.txt
 # 4. Zainstaluj nmap, exploitdb i sqlmap w systemie
 apt-get install nmap exploitdb sqlmap -y
 
-# 5. Nadaj uprawnienia i uruchom jako root
-chmod +x recon3-4-3.py
-sudo python3 recon3-4-3.py
+# 5. (Opcjonalnie) Playwright dla komendy hw
+pip install playwright && playwright install chromium
+
+# 6. Nadaj uprawnienia i uruchom jako root
+chmod +x recon3-7.py
+sudo python3 recon3-7.py
 ```
 
 ---
@@ -146,27 +178,36 @@ Idealny do automatyzacji i skryptów w Bashu.
 
 ```bash
 # Podstawowe skany
-sudo python3 recon3-4-3.py -t 192.168.1.100 -m deep
-sudo python3 recon3-4-3.py -t 10.0.0.0/24  -m sweep
-sudo python3 recon3-4-3.py -t 192.168.1.1  -m mobile
+sudo python3 recon3-7.py -t 192.168.1.100 -m deep
+sudo python3 recon3-7.py -t 10.0.0.0/24  -m sweep
+sudo python3 recon3-7.py -t 192.168.1.1  -m mobile
 
 # Pełny skan całej infrastruktury (automatyczny)
-sudo python3 recon3-4-3.py -m all-net
+sudo python3 recon3-7.py -m all-net
 
 # Fuzzer z zewnętrznym słownikiem
-sudo python3 recon3-4-3.py -t 192.168.1.1 -m fuzz -w /usr/share/wordlists/dirb/common.txt
+sudo python3 recon3-7.py -t 192.168.1.1 -m fuzz -w /usr/share/wordlists/dirb/common.txt
 
 # SQL Injection – pojedynczy URL z WAF-bypass
-sudo python3 recon3-4-3.py -t "http://cel/page.php?id=1" -m sql
+sudo python3 recon3-7.py -t "http://cel/page.php?id=1" -m sql
+
+# SQL Injection – wznów poprzednią sesję SQLMap
+sudo python3 recon3-7.py -t "http://cel/page.php?id=1" -m sql --resume
 
 # SQL Injection – automatyczny spider + masowy atak
-sudo python3 recon3-4-3.py -t "http://cel/index.php" -m auto-sql
+sudo python3 recon3-7.py -t "http://cel/index.php" -m auto-sql
+
+# Headless browser scan (wymaga Playwright)
+sudo python3 recon3-7.py -t "http://cel/" -m hw
+
+# HTTP Parameter Pollution test
+sudo python3 recon3-7.py -t "http://cel/page.php?id=1" -m hpp
 
 # Skanowanie podatności na wszystkich portach
-sudo python3 recon3-4-3.py -t 192.168.1.1 -m vuln --full-ports
+sudo python3 recon3-7.py -t 192.168.1.1 -m vuln --full-ports
 
 # Tryb z weryfikacją certyfikatów SSL
-sudo python3 recon3-4-3.py -t 192.168.1.1 -m banner --strict-ssl
+sudo python3 recon3-7.py -t 192.168.1.1 -m banner --strict-ssl
 ```
 
 ---
@@ -203,6 +244,14 @@ Wszystkie wyniki są automatycznie zapisywane w katalogu:
 - [x] Masowy audyt `all-net` z możliwością pominięcia hosta przez Ctrl+C (v3.4)
 - [x] SQLMap Auto-Tamper WAF-Bypass (`sql`) – rotacja 6 łańcuchów (v3.5)
 - [x] Auto-Spider + masowy SQLi (`auto-sql`) – crawl → deduplikacja → atak (v3.5)
+- [x] Smart Delay + Jitter w fuzzerze – anty-WAF/IPS heurystyka (v3.6)
+- [x] Zaawansowana rotacja nagłówków – Client Hints, X-Forwarded-For (v3.6)
+- [x] WAF-Bypass via HTTP Parameter Pollution + Chunked Transfer Encoding (v3.6)
+- [x] Detekcja Rate Limiting + per-IP Cooldown state machine (v3.6)
+- [x] Headless browser scan via Playwright/Chromium (`hw`) (v3.6)
+- [x] Per-IP rate limiting – cooldown jednego celu nie blokuje innych (v3.7)
+- [x] Flaga `--resume` dla SQLMap – wznowienie sesji bez flush (v3.7)
+- [x] `NamedTemporaryFile` w Mobile Fuzzer – bezpieczne przy parallel runs (v3.7)
 - [ ] Moduł WiFi – skanowanie sieci bezprzewodowych (`iwlist` / `airodump-ng`)
 - [ ] Tryb cichy (`--quiet`) – tylko wyniki, bez kolorów ANSI
 
@@ -215,5 +264,5 @@ MIT License – szczegóły w pliku `LICENSE`.
 ---
 
 <p align="center">
-Stworzony z ♥ przez <strong>MR.ROOT</strong> | NetHunter Edition v3.5 REDHUNT-16-BETA
+Stworzony z ♥ przez <strong>MR.ROOT</strong> | NetHunter Edition v3.7 REDHUNT-16-BETA
 </p>
