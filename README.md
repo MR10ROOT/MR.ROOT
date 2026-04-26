@@ -1,9 +1,9 @@
 # MR.ROOT – Mobilny Skaner Sieci
 
-**NetHunter Edition v3.7 REDHUNT-16-BETA**
+**NetHunter Edition v3.8 REDHUNT-16-BETA | ADB-PENTEST**
 
-Zaawansowane narzędzie do rekonesansu, analizy sieci lokalnej, fuzzingu aplikacji webowych oraz automatycznego wykrywania podatności SQL Injection, zaprojektowane z myślą o pracy na Kali NetHunter (Android).
-Napisane w Pythonie, oparte na nmap, NSE, SearchSploit, sqlmap oraz autorskich, wielowątkowych modułach HTTP.
+Zaawansowane narzędzie do rekonesansu, analizy sieci lokalnej, fuzzingu aplikacji webowych, automatycznego wykrywania podatności SQL Injection oraz **pentestów urządzeń mobilnych Android przez ADB**, zaprojektowane z myślą o pracy na Kali NetHunter (Android).
+Napisane w Pythonie, oparte na nmap, NSE, SearchSploit, sqlmap, Frida oraz autorskich, wielowątkowych modułach HTTP.
 
 ```
   ███╗   ███╗██████╗     ██████╗  ██████╗  ██████╗ ████████╗
@@ -12,14 +12,15 @@ Napisane w Pythonie, oparte na nmap, NSE, SearchSploit, sqlmap oraz autorskich, 
   ██║╚██╔╝██║██╔══██╗    ██╔══██╗██║   ██║██║   ██║   ██║
   ██║ ╚═╝ ██║██║  ██║    ██║  ██║╚██████╔╝╚██████╔╝   ██║
   ╚═╝     ╚═╝╚═╝  ╚═╝    ╚═╝  ╚═╝ ╚═════╝  ╚═════╝    ╚═╝
+        NetHunter Edition v3.8 REDHUNT-16-BETA | ADB-PENTEST
 ```
 
 ---
 
 ## ⚠️ Zastrzeżenie prawne (Disclaimer)
 
-Narzędzie powstało wyłącznie w celach edukacyjnych oraz do testów we własnej sieci lub po uzyskaniu pisemnej zgody jej właściciela.
-Nieautoryzowane skanowanie sieci jest nielegalne i narusza m.in.:
+Narzędzie powstało wyłącznie w celach edukacyjnych oraz do testów na własnych urządzeniach lub po uzyskaniu pisemnej zgody ich właściciela.
+Nieautoryzowane skanowanie sieci i urządzeń jest nielegalne i narusza m.in.:
 
 - polską ustawę o cyberbezpieczeństwie,
 - europejską dyrektywę NIS2,
@@ -52,12 +53,123 @@ Skaner działa w trybie interaktywnym lub jako pojedyncze zadanie z linii polece
 | `auto-sql <URL>` | **[v3.5]** Auto-Spider + SQLMap – crawl strony → deduplikacja → masowy atak SQLi |
 | `hw <URL>` | **[v3.6]** Headless browser scan – analiza przez Playwright/Chromium |
 | `hpp <URL>` | **[v3.6]** HTTP Parameter Pollution test – WAF bypass via fragmentacja |
+| `adb` | **[v3.8]** ADB Audit – Device Info, APK Enum, Debug Surface (USB) |
+| `adb <package>` | **[v3.8]** ADB Audit + Frida SSL Unpin na wskazanej aplikacji |
+| `adb-frida <pkg>` | **[v3.8]** Frida SSL Unpin – push frida-server + inject |
+| `adb-dump [sec]` | **[v3.8]** tcpdump capture przez ADB USB (domyślnie 30s) → .pcap |
 | `h` | Pomoc |
 | `q / exit` | Wyjście |
 
 ---
 
 ## 🔥 Szczegóły głównych modułów
+
+### 📱 ADB Pentest Module — nowość v3.8
+
+Kompletny moduł do pentestów urządzeń mobilnych Android przez kabel USB (ADB).
+Działa z poziomu Kali NetHunter — nie wymaga żadnej instalacji na urządzeniu docelowym poza włączeniem Debugowania USB.
+
+#### `adb` — Device Info + Debug Surface + APK Enumeration
+
+Trójfazowy audit urządzenia:
+
+**Faza 1 — Device Info (`getprop`)**
+Zbiera pełną kartę urządzenia: brand, model, codename, Android version, SDK, ABI, kernel, build_type, build_tags, verified_boot state, SELinux mode, ro.debuggable, ro.secure, USB config, ADB TCP port, dostępność root shell (`su`), fingerprint.
+
+**Faza 2 — Debug Surface Analysis**
+Automatycznie analizuje zebrane właściwości i generuje listę findings z priorytetami:
+- 🔴 **HIGH**: `ro.debuggable=1`, `ro.secure=0`, `build_type=userdebug/eng`, SELinux=Permissive, ADB TCP aktywne przez WiFi
+- 🟡 **MED**: `build_tags` bez release-keys, Verified Boot != green, ADB aktywne przez USB
+- 🔵 **INFO**: Dostępny root shell
+
+**Faza 3 — APK Enumeration**
+Listuje wszystkie zainstalowane aplikacje (user + system) i automatycznie flaguje interesujące z punktu widzenia bezpieczeństwa: bankowość (PKO, mBank, ING, Alior, BLIK), komunikatory E2E (Signal, WhatsApp, Telegram), VPN (NordVPN, Mullvad, Tor), narzędzia root (Magisk), identyfikacja rządowa (mObywatel).
+
+Wynik: raport JSON w `/MR.ROOT/reports/adb_audit_<serial>_<timestamp>.json`
+
+---
+
+#### `adb-frida <package>` — Frida SSL Unpin
+
+Automatyzuje cały proces SSL unpinningu:
+
+1. Push `frida-server` ARM64 na urządzenie (`/data/local/tmp/`)
+2. `chmod +x` + uruchomienie przez `su` w tle
+3. Weryfikacja procesu (`ps -A | grep frida`)
+4. Uruchomienie aplikacji docelowej przez `monkey` jeśli nie działa
+5. Inject skryptu SSL Unpin (4 warstwy bypass):
+   - **OkHttp3 CertificatePinner** — najpopularniejsza biblioteka HTTP w Androidzie
+   - **javax.net.ssl.TrustManager** — natywny Java TLS
+   - **Conscrypt TrustManagerImpl** — Android 7+ (używany przez WebView)
+   - **Network Security Config** — Android 7+ NSC pinning
+6. Zatrzymanie frida-server po wyjściu (Ctrl+C)
+
+Działa w połączeniu z **mitmproxy** lub **Burp Suite** — po instalacji certyfikatu CA w systemowym store (`/system/etc/security/cacerts/`) przechwytuje pełny ruch HTTPS w plaintext.
+
+**Przetestowane:** Samsung Galaxy Tab A9 (SM-X110) — WeChat (`com.tencent.mm`) + Facebook SDK bypass ✅
+
+---
+
+#### `adb-dump [sekundy]` — Traffic Dump
+
+Przechwytuje ruch sieciowy bezpośrednio na urządzeniu:
+
+1. Push statycznego `tcpdump` ARM64 na urządzenie
+2. Capture na interfejsie `any` przez podaną liczbę sekund (domyślnie 30)
+3. Auto-pull pliku `.pcap` na hosta do katalogu raportów
+4. Usunięcie tymczasowych plików z urządzenia
+
+Wynik gotowy do otwarcia w **Wireshark**.
+
+---
+
+#### Wymagania modułu ADB (v3.8)
+
+| Składnik | Jak uzyskać |
+|---|---|
+| `adb` | `apt install adb` (Kali) / `pkg install android-tools` (Termux) |
+| `frida-tools` | `pip install frida-tools --break-system-packages` |
+| `frida-server` ARM64 | [github.com/frida/frida/releases](https://github.com/frida/frida/releases) → `frida-server-*-android-arm64.xz` |
+| `tcpdump` ARM64 (static) | [github.com/extremecoders-re/tcpdump-android-builds](https://github.com/extremecoders-re/tcpdump-android-builds) |
+
+Ścieżki domyślne (konfigurowalne w kodzie):
+```
+FRIDA_SERVER_LOCAL  = "/MR.ROOT/frida-server"
+TCPDUMP_LOCAL       = "/MR.ROOT/tcpdump"
+```
+
+Wersja `frida-server` **musi być identyczna** z wersją `frida-tools`:
+```bash
+frida --version        # np. 17.9.1
+# Pobierz frida-server-17.9.1-android-arm64.xz
+```
+
+---
+
+#### Przykładowy flow — pełny pentest mobilny
+
+```bash
+# 1. Podłącz urządzenie docelowe przez USB
+adb devices
+# → cmtokbayqkpbofbi   device
+
+# 2. Uruchom MR.ROOT
+python3 recon3-8.py
+
+# 3. Pełny audit (device info + debug surface + APK enum)
+[MR.ROOT]>> adb
+
+# 4. SSL Unpin na konkretnej aplikacji
+[MR.ROOT]>> adb-frida com.tencent.mm
+
+# 5. W osobnym terminalu — przechwytywanie ruchu
+mitmproxy --listen-host 0.0.0.0 --listen-port 8082
+
+# 6. Capture ruchu do pcap
+[MR.ROOT]>> adb-dump 60
+```
+
+---
 
 ### 🛡️ Moduły STEALTH / WAF-Bypass — nowość v3.6
 
@@ -88,46 +200,30 @@ Skaner działa w trybie interaktywnym lub jako pojedyncze zadanie z linii polece
 **`sql <URL>`** – SQLMap Auto-Tamper WAF-Bypass:
 - Automatycznie rotuje 6 najskuteczniejszych łańcuchów tamperów skonstruowanych pod nowoczesne WAF (2025/2026).
 - Uruchamia `sqlmap --level=5 --risk=3 --batch --random-agent`.
-- **[v3.7]** Flaga `--resume` → wznawia poprzednią sesję SQLMap (`--no-flush-session`) zamiast zaczynać od nowa.
+- **[v3.7]** Flaga `--resume` → wznawia poprzednią sesję SQLMap (`--no-flush-session`).
 - Wykrywa podatność **na żywo** przez parsowanie stdout — zatrzymuje się przy pierwszym potwierdzeniu.
 - Po sukcesie wyświetla gotową komendę `--dump-all` z najlepszym tamperem.
-- Zapisuje raport JSON z timestampem do katalogu raportów.
 
 **`auto-sql <URL>`** – Auto-Spider + masowy SQLi:
-- Pobiera kod źródłowy strony i wyciąga wszystkie linki `href` przez wyrażenia regularne.
-- **Deduplikuje wektory ataku** po sygnaturze `(ścieżka_pliku, zestaw_parametrów_GET)` — `?id=1` i `?id=99` traktowane jako jeden wektor.
+- Pobiera kod źródłowy strony i wyciąga wszystkie linki `href`.
+- **Deduplikuje wektory ataku** po sygnaturze `(ścieżka_pliku, zestaw_parametrów_GET)`.
 - Wyświetla tabelę unikalnych endpointów przed atakiem.
-- Wywołuje `sql_scan()` sekwencyjnie na każdym znalezionym parametryzowanym adresie URL.
-- Zero zewnętrznych zależności — używa wyłącznie `re` i `urllib.parse` ze standardowej biblioteki Pythona.
-
-> **Przykład użycia:** `auto-sql http://192.168.101.44/index.php` — skrypt sam znajdzie wszystkie linki typu `product.php?id=5`, odrzuci duplikaty i automatycznie przeprowadzi atak SQLi.
+- Wywołuje `sql_scan()` sekwencyjnie na każdym znalezionym parametryzowanym URL.
 
 ---
 
-### 📱 Moduły mobilne (m, mf) — nowość v3.4
+### 📱 Moduły mobilne sieciowe (m, mf) — nowość v3.4
 
-- **Mobile Scan** – dedukuje typ urządzenia poprzez skanowanie specyficznych portów:
-  Android ADB (5555), Apple Lockdown (62078), KDE Connect (1714–1764), AirDroid (8888), AirPlay (7000).
-  Dodatkowo analizuje rekordy ZeroConf/mDNS pod kątem usług Apple i Google Cast.
-- **Mobile Fuzzer** – generuje na bieżąco specjalistyczny słownik ścieżek mobilnych (`/sdcard/`, `/DCIM/`, `/WhatsApp/Media/` itd.) i skanuje serwery HTTP w poszukiwaniu niezabezpieczonych plików użytkownika.
-- **[v3.7]** Mobile Fuzzer używa `tempfile.NamedTemporaryFile` — bezpieczne przy równoległych uruchomieniach.
+- **Mobile Scan** – dedukuje typ urządzenia przez skanowanie portów: ADB (5555), Apple Lockdown (62078), KDE Connect (1714–1764), AirDroid (8888), AirPlay (7000) + mDNS.
+- **Mobile Fuzzer** – generuje słownik ścieżek mobilnych (`/sdcard/`, `/DCIM/`, `/WhatsApp/Media/` itd.) i skanuje serwery HTTP w poszukiwaniu niezabezpieczonych plików.
 
-### 🤖 Automatyzacja (all, all-net) — nowość v3.1–v3.4
-
-- **Full Scan (`all`)** – uruchamia sekwencyjnie 6 modułów: Deep, Identity, SNMP, Banner, Fuzzer, Vuln.
-  Ctrl+C w trakcie fazy bezpiecznie ją pomija i przechodzi do następnej.
-- **Network Scan (`all-net`)** – „bomba dywanowa": wykonuje ping sweep, pyta o zgodę, a następnie uruchamia Full Scan dla każdego hosta w sieci. Na koniec generuje zbiorczy plik JSON ze statystykami.
+---
 
 ### 🚀 Smart Fuzzer (f \<IP\> [słownik])
 
 - **124 wbudowane wektory:** sekrety (`.env`, `.git/config`), API/Swagger/GraphQL, Spring Boot Actuator, backupy i pliki instalacyjne.
-- **Baseline fingerprinting** – skrypt uczy się wzorca Soft 404/Catch-all serwera i odrzuca fałszywe wyniki na podstawie skrótów MD5 i rozmiaru odpowiedzi.
-- **Rate limiting** – `threading.BoundedSemaphore` + Smart Delay z jitterem (v3.6), co chroni przed blokowaniem IP.
-
-### 🌐 Banner Grabber i Deep Scan
-
-- **Analizator nagłówków bezpieczeństwa** – Banner Grabber bada brakujące nagłówki (HSTS, CSP, X-Frame-Options) i ostrzega o wyciekach informacji (np. `Server: SimpleHTTP`) w konsoli oraz w raporcie HTML.
-- **Integracja z Exploit-DB** – Deep Scan automatycznie przeszukuje systemową bazę `searchsploit` dla każdej wykrytej usługi z konkretną wersją oprogramowania i podaje identyfikatory EDB-ID znalezionych exploitów.
+- **Baseline fingerprinting** – uczy się wzorca Soft 404/Catch-all serwera i odrzuca fałszywe wyniki.
+- **Rate limiting** – `threading.BoundedSemaphore` + Smart Delay z jitterem.
 
 ---
 
@@ -137,11 +233,13 @@ Skaner działa w trybie interaktywnym lub jako pojedyncze zadanie z linii polece
 |---|---|
 | System | Kali Linux / Kali NetHunter (Android) |
 | Python | 3.10+ |
-| Narzędzia | `nmap` 7.80+, `exploitdb` (SearchSploit), `sqlmap` |
-| Uprawnienia | root (wymagane do skanów UDP, detekcji OS i surowych pakietów) |
+| Narzędzia | `nmap` 7.80+, `exploitdb` (SearchSploit), `sqlmap`, `adb` |
+| Uprawnienia | root (wymagane do skanów UDP, detekcji OS, ADB su) |
 | Opcjonalnie | `playwright` + Chromium (tylko dla komendy `hw`) |
+| Opcjonalnie | `frida-tools` + `frida-server` ARM64 (dla `adb-frida`) |
+| Opcjonalnie | `tcpdump` ARM64 static (dla `adb-dump`) |
 
-> **NetHunter Chroot Fix** – skrypt posiada trzy wbudowane mechanizmy wykrywania interfejsów sieciowych (fallbacki), co rozwiązuje problem braku domyślnej bramy w środowisku chroot na Androidzie. Omija też wirtualne interfejsy systemowe (`ccmni`, `dummy`, `rmnet`).
+> **NetHunter Chroot Fix** – skrypt posiada trzy wbudowane mechanizmy wykrywania interfejsów sieciowych (fallbacki), co rozwiązuje problem braku domyślnej bramy w środowisku chroot na Androidzie.
 
 ---
 
@@ -149,111 +247,120 @@ Skaner działa w trybie interaktywnym lub jako pojedyncze zadanie z linii polece
 
 ```bash
 # 1. Sklonuj repozytorium
-git clone https://github.com/TWOJ_LOGIN/mr-root-recon.git
-cd mr-root-recon
+git clone https://github.com/MR10ROOT/MR.ROOT.git
+cd MR.ROOT
 
 # 2. Utwórz środowisko wirtualne (zalecane)
-python3 -m venv .venv
-source .venv/bin/activate
+python3 -m venv venv
+source venv/bin/activate
 
 # 3. Zainstaluj zależności Pythona
 pip install -r requirements.txt
 
-# 4. Zainstaluj nmap, exploitdb i sqlmap w systemie
-apt-get install nmap exploitdb sqlmap -y
+# 4. Zainstaluj narzędzia systemowe
+apt install nmap exploitdb sqlmap adb -y
 
 # 5. (Opcjonalnie) Playwright dla komendy hw
 pip install playwright && playwright install chromium
 
-# 6. Nadaj uprawnienia i uruchom jako root
-chmod +x recon3-7.py
-sudo python3 recon3-7.py
+# 6. (Opcjonalnie) Frida dla modułu ADB
+pip install frida-tools --break-system-packages
+# Pobierz frida-server ARM64 z github.com/frida/frida/releases
+# Umieść jako /MR.ROOT/frida-server i nadaj chmod +x
+
+# 7. Nadaj uprawnienia i uruchom jako root
+chmod +x recon3-8.py
+sudo python3 recon3-8.py
 ```
 
 ---
 
 ## 🚀 Użycie (tryb CLI / one-shot)
 
-Idealny do automatyzacji i skryptów w Bashu.
-
 ```bash
-# Podstawowe skany
-sudo python3 recon3-7.py -t 192.168.1.100 -m deep
-sudo python3 recon3-7.py -t 10.0.0.0/24  -m sweep
-sudo python3 recon3-7.py -t 192.168.1.1  -m mobile
+# Podstawowe skany sieciowe
+sudo python3 recon3-8.py -t 192.168.1.100 -m deep
+sudo python3 recon3-8.py -t 10.0.0.0/24  -m sweep
+sudo python3 recon3-8.py -t 192.168.1.1  -m mobile
 
-# Pełny skan całej infrastruktury (automatyczny)
-sudo python3 recon3-7.py -m all-net
+# Pełny skan sieci
+sudo python3 recon3-8.py -m all-net
 
 # Fuzzer z zewnętrznym słownikiem
-sudo python3 recon3-7.py -t 192.168.1.1 -m fuzz -w /usr/share/wordlists/dirb/common.txt
+sudo python3 recon3-8.py -t 192.168.1.1 -m fuzz -w /usr/share/wordlists/dirb/common.txt
 
-# SQL Injection – pojedynczy URL z WAF-bypass
-sudo python3 recon3-7.py -t "http://cel/page.php?id=1" -m sql
+# SQL Injection
+sudo python3 recon3-8.py -t "http://cel/page.php?id=1" -m sql
+sudo python3 recon3-8.py -t "http://cel/page.php?id=1" -m sql --resume
+sudo python3 recon3-8.py -t "http://cel/index.php" -m auto-sql
 
-# SQL Injection – wznów poprzednią sesję SQLMap
-sudo python3 recon3-7.py -t "http://cel/page.php?id=1" -m sql --resume
+# Headless browser scan
+sudo python3 recon3-8.py -t "http://cel/" -m hw
 
-# SQL Injection – automatyczny spider + masowy atak
-sudo python3 recon3-7.py -t "http://cel/index.php" -m auto-sql
+# HTTP Parameter Pollution
+sudo python3 recon3-8.py -t "http://cel/page.php?id=1" -m hpp
 
-# Headless browser scan (wymaga Playwright)
-sudo python3 recon3-7.py -t "http://cel/" -m hw
+# [v3.8] ADB Pentest — audit urządzenia USB
+sudo python3 recon3-8.py -m adb
 
-# HTTP Parameter Pollution test
-sudo python3 recon3-7.py -t "http://cel/page.php?id=1" -m hpp
+# [v3.8] ADB + Frida SSL Unpin
+sudo python3 recon3-8.py -m adb-frida -t com.example.app
 
-# Skanowanie podatności na wszystkich portach
-sudo python3 recon3-7.py -t 192.168.1.1 -m vuln --full-ports
-
-# Tryb z weryfikacją certyfikatów SSL
-sudo python3 recon3-7.py -t 192.168.1.1 -m banner --strict-ssl
+# [v3.8] ADB Traffic Dump (60 sekund)
+sudo python3 recon3-8.py -m adb-dump -t 60
 ```
 
 ---
 
 ## 📁 Raporty (JSON i HTML)
 
-Wszystkie wyniki są automatycznie zapisywane w katalogu:
+Wszystkie wyniki są automatycznie zapisywane w katalogu `/MR.ROOT/reports/`:
 
 ```
 /MR.ROOT/reports/
-├── netscan_20260404_175304.json                      # master raport z all-net
-├── sweep_20260404_170916.txt                         # lista hostów
-├── scan_20260404_172208.json                         # deep scan
-├── identity_192-168-101-1_20260404_172221.json       # identity scan
-├── mobile_192-168-101-43_20260404_172031.json        # skan mobilny
-├── fuzz_192-168-101-43_20260404_180900.json          # wyniki fuzzera
-├── banner_192-168-101-1_20260404_172536.json         # banner grabber (surowe dane)
-├── sqlmap_http___cel_page_20260404_183012.json       # wynik sql_scan
+├── netscan_20260426_070000.json
+├── sweep_20260426_070000.txt
+├── scan_20260426_070000.json
+├── identity_192-168-101-1_20260426_070000.json
+├── mobile_192-168-101-43_20260426_070000.json
+├── fuzz_192-168-101-43_20260426_070000.json
+├── banner_192-168-101-1_20260426_070000.json
+├── sqlmap_http___cel_page_20260426_070000.json
+├── adb_audit_cmtokbayqkpbofbi_20260426_070000.json   ← [v3.8] ADB Audit
+├── traffic_cmtokbayqkpbofbi_20260426_070000.pcap      ← [v3.8] tcpdump capture
 └── html/
-    └── banner_192-168-101-1_20260404_172536.html     # raport HTML z audytem nagłówków
+    └── banner_192-168-101-1_20260426_070000.html
 ```
 
 ---
 
 ## 🗺️ Roadmap
 
-- [x] Tryb Full Scan (`all` / `-m all`) – wszystkie moduły sekwencyjnie (v3.1)
+- [x] Tryb Full Scan (`all` / `-m all`) — wszystkie moduły sekwencyjnie (v3.1)
 - [x] Zbieranie statystyk do końcowego raportu JSON (v3.1)
-- [x] Integracja z SearchSploit (Exploit-DB) dla wykrytych usług (v3.2)
+- [x] Integracja z SearchSploit (Exploit-DB) (v3.2)
 - [x] Analizator nagłówków HTTP (HSTS, CSP, Info-leak) (v3.2)
 - [x] Omijanie ograniczeń routingu NetHunter chroot (v3.3)
 - [x] Oznaczanie urządzeń mobilnych (📱/💻) w ping sweep (v3.4)
 - [x] Moduły Mobile Scan (`m`) i Mobile Fuzzer (`mf`) (v3.4)
-- [x] Masowy audyt `all-net` z możliwością pominięcia hosta przez Ctrl+C (v3.4)
-- [x] SQLMap Auto-Tamper WAF-Bypass (`sql`) – rotacja 6 łańcuchów (v3.5)
-- [x] Auto-Spider + masowy SQLi (`auto-sql`) – crawl → deduplikacja → atak (v3.5)
-- [x] Smart Delay + Jitter w fuzzerze – anty-WAF/IPS heurystyka (v3.6)
-- [x] Zaawansowana rotacja nagłówków – Client Hints, X-Forwarded-For (v3.6)
-- [x] WAF-Bypass via HTTP Parameter Pollution + Chunked Transfer Encoding (v3.6)
+- [x] Masowy audyt `all-net` z możliwością pominięcia hosta (v3.4)
+- [x] SQLMap Auto-Tamper WAF-Bypass (`sql`) (v3.5)
+- [x] Auto-Spider + masowy SQLi (`auto-sql`) (v3.5)
+- [x] Smart Delay + Jitter — anty-WAF/IPS (v3.6)
+- [x] Zaawansowana rotacja nagłówków — Client Hints, X-Forwarded-For (v3.6)
+- [x] WAF-Bypass via HTTP Parameter Pollution + Chunked Transfer (v3.6)
 - [x] Detekcja Rate Limiting + per-IP Cooldown state machine (v3.6)
 - [x] Headless browser scan via Playwright/Chromium (`hw`) (v3.6)
-- [x] Per-IP rate limiting – cooldown jednego celu nie blokuje innych (v3.7)
-- [x] Flaga `--resume` dla SQLMap – wznowienie sesji bez flush (v3.7)
-- [x] `NamedTemporaryFile` w Mobile Fuzzer – bezpieczne przy parallel runs (v3.7)
-- [ ] Moduł WiFi – skanowanie sieci bezprzewodowych (`iwlist` / `airodump-ng`)
-- [ ] Tryb cichy (`--quiet`) – tylko wyniki, bez kolorów ANSI
+- [x] Per-IP rate limiting — cooldown jednego celu nie blokuje innych (v3.7)
+- [x] Flaga `--resume` dla SQLMap (v3.7)
+- [x] `NamedTemporaryFile` w Mobile Fuzzer (v3.7)
+- [x] **ADB Device Info + Debug Surface Analysis** (v3.8)
+- [x] **ADB APK Enumeration z flagowaniem interesujących pakietów** (v3.8)
+- [x] **Frida SSL Unpin przez ADB USB** (OkHttp3 + TrustManager + Conscrypt + NSC) (v3.8)
+- [x] **Traffic Dump przez ADB USB** — tcpdump → .pcap → Wireshark (v3.8)
+- [ ] Moduł WiFi — skanowanie sieci bezprzewodowych (`iwlist` / `airodump-ng`)
+- [ ] Tryb cichy (`--quiet`) — tylko wyniki, bez kolorów ANSI
+- [ ] Eksport raportów do HTML dla modułu ADB
 
 ---
 
@@ -264,5 +371,5 @@ MIT License – szczegóły w pliku `LICENSE`.
 ---
 
 <p align="center">
-Stworzony z ♥ przez <strong>MR.ROOT</strong> | NetHunter Edition v3.7 REDHUNT-16-BETA
+Stworzony z ♥ przez <strong>MR.ROOT</strong> | NetHunter Edition v3.8 REDHUNT-16-BETA | ADB-PENTEST
 </p>
