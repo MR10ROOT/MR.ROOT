@@ -1,8 +1,19 @@
-# MR.ROOT — NetHunter Scanner v2.2
+# MR.ROOT — NetHunter Scanner v3.8
 # Instalacja: pip install -r requirements.txt
 # Wymagany nmap w systemie: apt install nmap
+# Wymagany adb w systemie:  apt install adb  (Kali) | pkg install android-tools (Termux)
 
 # Wrapper Pythona dla nmap (wymagany nmap w systemie)
 python-nmap>=0.7.1
 
-# Reszta (json, socket, ssl, ipaddress, subprocess, urllib, argparse, hashlib, concurrent.futures) to stdlib Python 3.10+
+# Headless browser — komenda: hw <URL>
+# Po instalacji uruchom: playwright install chromium
+playwright>=1.40.0
+
+# Frida — komenda: adb-frida <package>
+# Wymagana zgodność z wersją frida-server na urządzeniu!
+frida-tools>=12.0.0
+
+# Reszta (json, socket, ssl, ipaddress, subprocess, urllib, argparse,
+# hashlib, concurrent.futures, threading, tempfile, re, shutil, random)
+# to stdlib Python 3.10+
