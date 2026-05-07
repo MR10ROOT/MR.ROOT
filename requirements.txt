@@ -18,7 +18,8 @@ scapy>=2.5.0
 # WAŻNE: wersja musi być identyczna z frida-server na urządzeniu!
 # Sprawdź: frida --version
 # Pobierz matching frida-server: github.com/frida/frida/releases
-frida-tools==17.7.1
+# Dostępne wersje pip: max 14.8.2 (17.x tylko jako wheel z github)
+frida-tools==14.8.2
 
 # === v3.6 — Headless browser scan (komenda: hw <URL>) ===
 # Po instalacji uruchom: playwright install chromium
