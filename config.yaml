@@ -5,9 +5,9 @@
 
 # === Ścieżki narzędzi binarnych ===
 paths:
-  frida_server:   "/MR.ROOT/frida-server"     # frida-server ARM64 binary
-  tcpdump:        "/MR.ROOT/tcpdump"           # tcpdump ARM64 static binary
-  reports_dir:    "/MR.ROOT/reports"           # katalog wyjściowy raportów
+  frida_server:   "~/MR.ROOT/frida-server"     # frida-server ARM64 binary
+  tcpdump:        "~/MR.ROOT/tcpdump"           # tcpdump ARM64 static binary
+  reports_dir:    "~/MR.ROOT/reports"           # katalog wyjściowy raportów
   wordlist:       null                          # domyślny słownik dla fuzzera (null = wbudowany)
 
 # === Wersja Frida (musi matchować frida-server na urządzeniu) ===
