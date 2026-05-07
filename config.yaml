@@ -1,0 +1,54 @@
+# ============================================================
+# MR.ROOT Scanner — config.yaml
+# Edytuj ten plik zamiast hardkodować ścieżki w kodzie!
+# ============================================================
+
+# === Ścieżki narzędzi binarnych ===
+paths:
+  frida_server:   "/MR.ROOT/frida-server"     # frida-server ARM64 binary
+  tcpdump:        "/MR.ROOT/tcpdump"           # tcpdump ARM64 static binary
+  reports_dir:    "/MR.ROOT/reports"           # katalog wyjściowy raportów
+  wordlist:       null                          # domyślny słownik dla fuzzera (null = wbudowany)
+
+# === Wersja Frida (musi matchować frida-server na urządzeniu) ===
+frida:
+  version:        "17.7.1"
+  arch:           "arm64"
+  server_path_on_device: "/data/local/tmp/frida-server"
+
+# === ADB ===
+adb:
+  default_dump_seconds: 30                     # czas przechwytywania dla adb-dump
+  tcpdump_interface:    "any"                  # interfejs sieciowy na urządzeniu
+
+# === Stealth / WAF-Bypass ===
+stealth:
+  jitter_min:     0.3                          # minimalne opóźnienie między żądaniami [s]
+  jitter_max:     1.8                          # maksymalne opóźnienie [s]
+  rate_limit_cooldown: 300                     # czas cooldown po wykryciu rate limitingu [s]
+  rate_limit_codes: [403, 429, 503]            # kody HTTP traktowane jako rate limit
+
+# === Packet Sniffer (v3.9 sniff_scan) ===
+sniffer:
+  backend:        "scapy"                      # "scapy" lub "tshark"
+  default_iface:  null                         # null = auto-detect
+  capture_timeout: 60                          # domyślny czas przechwytywania [s]
+  bpf_filter:     ""                           # opcjonalny filtr BPF, np. "port 80 or port 443"
+
+# === SQLMap ===
+sqlmap:
+  level:          5
+  risk:           3
+  random_agent:   true
+  batch:          true
+
+# === Nmap ===
+nmap:
+  deep_scan_args: "-sV -sC -O --script=vuln"
+  sweep_args:     "-sn"
+  timeout:        300                          # timeout skanu [s]
+
+# === Fuzzer ===
+fuzzer:
+  threads:        10
+  timeout_per_req: 5                           # timeout pojedynczego żądania [s]
