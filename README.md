@@ -85,7 +85,7 @@ Automatycznie analizuje zebrane właściwości i generuje listę findings z prio
 **Faza 3 — APK Enumeration**
 Listuje wszystkie zainstalowane aplikacje (user + system) i automatycznie flaguje interesujące z punktu widzenia bezpieczeństwa: bankowość (PKO, mBank, ING, Alior, BLIK), komunikatory E2E (Signal, WhatsApp, Telegram), VPN (NordVPN, Mullvad, Tor), narzędzia root (Magisk), identyfikacja rządowa (mObywatel).
 
-Wynik: raport JSON w `/MR.ROOT/reports/adb_audit_<serial>_<timestamp>.json`
+Wynik: raport JSON w `~~/MR.ROOT/reports/adb_audit_<serial>_<timestamp>.json`
 
 ---
 
@@ -134,8 +134,8 @@ Wynik gotowy do otwarcia w **Wireshark**.
 
 Ścieżki domyślne (konfigurowalne w kodzie):
 ```
-FRIDA_SERVER_LOCAL  = "/MR.ROOT/frida-server"
-TCPDUMP_LOCAL       = "/MR.ROOT/tcpdump"
+FRIDA_SERVER_LOCAL  = "~~/MR.ROOT/frida-server"
+TCPDUMP_LOCAL       = "~~/MR.ROOT/tcpdump"
 ```
 
 Wersja `frida-server` **musi być identyczna** z wersją `frida-tools`:
@@ -154,7 +154,7 @@ adb devices
 # → cmtokbayqkpbofbi   device
 
 # 2. Uruchom MR.ROOT
-python3 recon3-8.py
+python3 recon3-9.py
 
 # 3. Pełny audit (device info + debug surface + APK enum)
 [MR.ROOT]>> adb
@@ -266,11 +266,11 @@ pip install playwright && playwright install chromium
 # 6. (Opcjonalnie) Frida dla modułu ADB
 pip install frida-tools --break-system-packages
 # Pobierz frida-server ARM64 z github.com/frida/frida/releases
-# Umieść jako /MR.ROOT/frida-server i nadaj chmod +x
+# Umieść jako ~~/MR.ROOT/frida-server i nadaj chmod +x
 
 # 7. Nadaj uprawnienia i uruchom jako root
-chmod +x recon3-8.py
-sudo python3 recon3-8.py
+chmod +x recon3-9.py
+sudo python3 recon3-9.py
 ```
 
 ---
@@ -279,45 +279,45 @@ sudo python3 recon3-8.py
 
 ```bash
 # Podstawowe skany sieciowe
-sudo python3 recon3-8.py -t 192.168.1.100 -m deep
-sudo python3 recon3-8.py -t 10.0.0.0/24  -m sweep
-sudo python3 recon3-8.py -t 192.168.1.1  -m mobile
+sudo python3 recon3-9.py -t 192.168.1.100 -m deep
+sudo python3 recon3-9.py -t 10.0.0.0/24  -m sweep
+sudo python3 recon3-9.py -t 192.168.1.1  -m mobile
 
 # Pełny skan sieci
-sudo python3 recon3-8.py -m all-net
+sudo python3 recon3-9.py -m all-net
 
 # Fuzzer z zewnętrznym słownikiem
-sudo python3 recon3-8.py -t 192.168.1.1 -m fuzz -w /usr/share/wordlists/dirb/common.txt
+sudo python3 recon3-9.py -t 192.168.1.1 -m fuzz -w /usr/share/wordlists/dirb/common.txt
 
 # SQL Injection
-sudo python3 recon3-8.py -t "http://cel/page.php?id=1" -m sql
-sudo python3 recon3-8.py -t "http://cel/page.php?id=1" -m sql --resume
-sudo python3 recon3-8.py -t "http://cel/index.php" -m auto-sql
+sudo python3 recon3-9.py -t "http://cel/page.php?id=1" -m sql
+sudo python3 recon3-9.py -t "http://cel/page.php?id=1" -m sql --resume
+sudo python3 recon3-9.py -t "http://cel/index.php" -m auto-sql
 
 # Headless browser scan
-sudo python3 recon3-8.py -t "http://cel/" -m hw
+sudo python3 recon3-9.py -t "http://cel/" -m hw
 
 # HTTP Parameter Pollution
-sudo python3 recon3-8.py -t "http://cel/page.php?id=1" -m hpp
+sudo python3 recon3-9.py -t "http://cel/page.php?id=1" -m hpp
 
 # [v3.8] ADB Pentest — audit urządzenia USB
-sudo python3 recon3-8.py -m adb
+sudo python3 recon3-9.py -m adb
 
 # [v3.8] ADB + Frida SSL Unpin
-sudo python3 recon3-8.py -m adb-frida -t com.example.app
+sudo python3 recon3-9.py -m adb-frida -t com.example.app
 
 # [v3.8] ADB Traffic Dump (60 sekund)
-sudo python3 recon3-8.py -m adb-dump -t 60
+sudo python3 recon3-9.py -m adb-dump -t 60
 ```
 
 ---
 
 ## 📁 Raporty (JSON i HTML)
 
-Wszystkie wyniki są automatycznie zapisywane w katalogu `/MR.ROOT/reports/`:
+Wszystkie wyniki są automatycznie zapisywane w katalogu `~~/MR.ROOT/reports/`:
 
 ```
-/MR.ROOT/reports/
+~~/MR.ROOT/reports/
 ├── netscan_20260426_070000.json
 ├── sweep_20260426_070000.txt
 ├── scan_20260426_070000.json
