@@ -1,19 +1,35 @@
-# MR.ROOT — NetHunter Scanner v3.8
-# Instalacja: pip install -r requirements.txt
-# Wymagany nmap w systemie: apt install nmap
-# Wymagany adb w systemie:  apt install adb  (Kali) | pkg install android-tools (Termux)
+# ============================================================
+# MR.ROOT — NetHunter Scanner v3.9
+# Instalacja: pip install -r requirements.txt --break-system-packages
+# ============================================================
 
-# Wrapper Pythona dla nmap (wymagany nmap w systemie)
+# === Wymagane narzędzia systemowe (apt / pkg) ===
+# apt install nmap exploitdb sqlmap adb -y          (Kali Linux)
+# pkg install nmap sqlmap android-tools             (Termux/NetHunter)
+
+# === Core — skanowanie sieci ===
 python-nmap>=0.7.1
 
-# Headless browser — komenda: hw <URL>
+# === v3.9 — Passive Packet Sniffer (sniff_scan) ===
+# Wymaga też tshark w systemie: apt install tshark
+scapy>=2.5.0
+
+# === v3.8 — Frida SSL Unpinning przez ADB ===
+# WAŻNE: wersja musi być identyczna z frida-server na urządzeniu!
+# Sprawdź: frida --version
+# Pobierz matching frida-server: github.com/frida/frida/releases
+frida-tools==17.7.1
+
+# === v3.6 — Headless browser scan (komenda: hw <URL>) ===
 # Po instalacji uruchom: playwright install chromium
 playwright>=1.40.0
 
-# Frida — komenda: adb-frida <package>
-# Wymagana zgodność z wersją frida-server na urządzeniu!
-frida-tools>=12.0.0
+# === Parsowanie konfiguracji (config.yaml) ===
+pyyaml>=6.0
 
-# Reszta (json, socket, ssl, ipaddress, subprocess, urllib, argparse,
-# hashlib, concurrent.futures, threading, tempfile, re, shutil, random)
-# to stdlib Python 3.10+
+# ============================================================
+# Stdlib Python 3.10+ (nie wymagają instalacji):
+# json, socket, ssl, ipaddress, subprocess, urllib, argparse,
+# hashlib, concurrent.futures, threading, tempfile, re, shutil,
+# random, os, sys, time, datetime, collections
+# ============================================================
